@@ -54,8 +54,35 @@
         .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
         input, select, textarea {
             width: 100%; padding: 12px; border: 2px solid #edf2f7;
-            border-radius: 12px; font-size: 15px; background: #f8fafc; box-sizing: border-box;
+            border-radius: 12px; font-size: 14px; background: #f8fafc; box-sizing: border-box;
         }
+
+        /* Medication Specific UI */
+        .med-entry { 
+            background: #f1f5f9; 
+            padding: 10px; 
+            border-radius: 12px; 
+            margin-bottom: 10px; 
+            border: 1px solid #e2e8f0;
+        }
+        .med-grid { 
+            display: grid; 
+            grid-template-columns: 2fr 1fr 1fr; 
+            gap: 5px; 
+            margin-top: 5px;
+        }
+        .add-med-btn { 
+            background: #edf2f7; 
+            color: var(--primary-blue); 
+            border: 2px dashed var(--primary-blue); 
+            width: 100%; 
+            padding: 8px; 
+            border-radius: 10px; 
+            font-weight: bold; 
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+        .remove-med { color: var(--danger-red); font-weight: bold; cursor: pointer; float: right; }
 
         .mic-btn {
             background: #f8fafc; border: 2px solid #edf2f7; border-radius: 12px;
@@ -138,11 +165,10 @@
                 <button class="mic-btn" onclick="runSpeech('otherIllnessInput')">🎤</button>
             </div>
 
-            <label>Medication Given</label>
-            <div class="input-row">
-                <input type="text" id="medicine" placeholder="e.g. Paracetamol">
-                <button class="mic-btn" onclick="runSpeech('medicine')">🎤</button>
-            </div>
+            <label>Medication List</label>
+            <div id="medicationContainer">
+                </div>
+            <button class="add-med-btn" onclick="addMedicationRow()">+ Add Medication</button>
 
             <label>Notes</label>
             <div class="input-row">
@@ -169,7 +195,7 @@
             <label>Insurance Documents</label>
             <input type="file" id="insuranceFile" accept="image/*,.pdf" style="margin-bottom:15px;">
             
-            <label>Other Reports</label>
+            <label>Other Reports / Prescription</label>
             <input type="file" id="otherReportsFile" accept="image/*,.pdf" style="margin-bottom:15px;">
             
             <button class="action save-btn" style="width:100%" onclick="saveFiles()">Upload to Vault 📁</button>
@@ -207,17 +233,36 @@
         "Other": ["Other"]
     };
 
-    // Store file objects in memory for the session
-    let sessionFiles = {};
-
     window.onload = () => {
         document.getElementById('visitDate').valueAsDate = new Date();
         const catSelect = document.getElementById('categorySelect');
         catSelect.add(new Option("-- Select Category --", ""));
         Object.keys(medicalData).forEach(cat => catSelect.add(new Option(cat, cat)));
+        addMedicationRow(); // Add one row by default
         fetchHistory();
         renderReportList();
     };
+
+    function addMedicationRow(data = null) {
+        const container = document.getElementById('medicationContainer');
+        const div = document.createElement('div');
+        div.className = 'med-entry';
+        div.innerHTML = `
+            <span class="remove-med" onclick="this.parentElement.remove()">✕</span>
+            <input type="text" class="med-name" placeholder="Medicine Name" value="${data ? data.name : ''}">
+            <div class="med-grid">
+                <input type="text" class="med-dose" placeholder="Dose (500, 10)" value="${data ? data.dose : ''}">
+                <select class="med-unit">
+                    <option value="mg" ${data && data.unit === 'mg' ? 'selected' : ''}>mg</option>
+                    <option value="ml" ${data && data.unit === 'ml' ? 'selected' : ''}>ml</option>
+                    <option value="Tab" ${data && data.unit === 'Tab' ? 'selected' : ''}>Tab</option>
+                    <option value="Cap" ${data && data.unit === 'Cap' ? 'selected' : ''}>Cap</option>
+                </select>
+                <input type="text" class="med-freq" placeholder="1-0-1" value="${data ? data.freq : ''}">
+            </div>
+        `;
+        container.appendChild(div);
+    }
 
     function switchTab(tabId) {
         document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -267,14 +312,32 @@
         let originalIll = ill;
         if(ill === "Other") ill = document.getElementById('otherIllnessInput').value;
         
-        const med = document.getElementById('medicine').value;
+        // Handle Multi-Medications
+        const medRows = document.querySelectorAll('.med-entry');
+        let medsArray = [];
+        let summaryString = "";
+
+        medRows.forEach(row => {
+            const name = row.querySelector('.med-name').value;
+            const dose = row.querySelector('.med-dose').value;
+            const unit = row.querySelector('.med-unit').value;
+            const freq = row.querySelector('.med-freq').value;
+            if(name) {
+                medsArray.push({name, dose, unit, freq});
+                summaryString += `${name} (${dose}${unit}) [${freq}], `;
+            }
+        });
+
         const note = document.getElementById('notes').value;
         const editIdx = parseInt(document.getElementById('editIndex').value);
 
-        if (!ill || !med) return alert("Please fill at least Illness and Medication.");
+        if (!ill || medsArray.length === 0) return alert("Please fill at least Illness and one Medication.");
 
         const visit = { 
-            date: vDate, doctor: dr, category: cat, illness: ill, medicine: med, notes: note,
+            date: vDate, doctor: dr, category: cat, illness: ill, 
+            medicine: summaryString.replace(/, $/, ""), // string for history view
+            medDetails: medsArray, // raw data for editing
+            notes: note,
             metaCat: originalCat, metaIll: originalIll
         };
 
@@ -337,42 +400,44 @@
 
         if (!blood.files[0] && !insurance.files[0] && !other.files[0]) return alert("Please select a file.");
 
-        let reports = JSON.parse(localStorage.getItem('myDocs')) || [];
-        
-        const addReport = (fileInput, type) => {
-            if (fileInput.files[0]) {
-                const file = fileInput.files[0];
-                const fileId = Date.now() + "_" + file.name;
-                // Store the actual file object in a session variable
-                sessionFiles[fileId] = file;
-                
-                reports.push({ 
-                    id: fileId,
-                    type: type, 
-                    name: file.name, 
-                    date: new Date().toLocaleDateString() 
-                });
-                fileInput.value = ""; // Clear input
-            }
+        const processFile = (fileInput, type) => {
+            return new Promise((resolve) => {
+                if (fileInput.files[0]) {
+                    const file = fileInput.files[0];
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        let reports = JSON.parse(localStorage.getItem('myDocs')) || [];
+                        reports.push({ 
+                            id: Date.now() + "_" + Math.random(),
+                            type: type, 
+                            name: file.name, 
+                            date: new Date().toLocaleDateString(),
+                            data: e.target.result 
+                        });
+                        localStorage.setItem('myDocs', JSON.stringify(reports));
+                        fileInput.value = "";
+                        resolve();
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    resolve();
+                }
+            });
         };
 
-        addReport(blood, "Blood Report");
-        addReport(insurance, "Insurance");
-        addReport(other, "Other Report");
-
-        localStorage.setItem('myDocs', JSON.stringify(reports));
-        alert("Documents added to Vault.");
-        renderReportList();
+        Promise.all([
+            processFile(blood, "Blood Report"),
+            processFile(insurance, "Insurance"),
+            processFile(other, "Other Report")
+        ]).then(() => {
+            alert("Documents saved permanently.");
+            renderReportList();
+        });
     }
 
-    function viewFile(fileId) {
-        const file = sessionFiles[fileId];
-        if (file) {
-            const url = URL.createObjectURL(file);
-            window.open(url, '_blank');
-        } else {
-            alert("File access expired. Please re-upload for viewing (Storage is local to this session).");
-        }
+    function viewFile(dataUrl) {
+        const win = window.open();
+        win.document.write('<iframe src="' + dataUrl + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
     }
 
     function renderReportList() {
@@ -385,7 +450,7 @@
                     <small>${d.name} (${d.date})</small>
                 </div>
                 <div class="report-actions">
-                    <button class="control-btn view-btn" onclick="viewFile('${d.id}')">View 👁️</button>
+                    <button class="control-btn view-btn" onclick="viewFile('${d.data}')">View 👁️</button>
                     <button class="control-btn del-btn" onclick="deleteDoc(${i})">🗑️</button>
                 </div>
             </div>
@@ -393,10 +458,12 @@
     }
 
     function deleteDoc(index) {
-        let docs = JSON.parse(localStorage.getItem('myDocs'));
-        docs.splice(index, 1);
-        localStorage.setItem('myDocs', JSON.stringify(docs));
-        renderReportList();
+        if(confirm("Delete this document?")) {
+            let docs = JSON.parse(localStorage.getItem('myDocs'));
+            docs.splice(index, 1);
+            localStorage.setItem('myDocs', JSON.stringify(docs));
+            renderReportList();
+        }
     }
 
     function fetchHistory() {
@@ -407,7 +474,9 @@
                 <div style="display:flex; justify-content:space-between;"><span style="font-weight:bold;">${v.date}</span><span class="tag">${v.category}</span></div>
                 <h4 style="margin:5px 0;">${v.illness}</h4>
                 <p style="margin:0; font-size:13px;"><strong>Dr:</strong> ${v.doctor}</p>
-                <p style="margin:5px 0 0 0; font-size:14px;"><strong>Meds:</strong> ${v.medicine}</p>
+                <div style="margin:5px 0 0 0; font-size:13px; color:var(--primary-green);">
+                    <strong>Meds:</strong> ${v.medicine}
+                </div>
                 <div class="card-controls">
                     <button class="control-btn edit-btn" onclick="editVisit(${index})">Edit ✏️</button>
                     <button class="control-btn del-btn" onclick="deleteVisit(${index})">Delete 🗑️</button>
@@ -423,11 +492,20 @@
         document.getElementById('drName').value = v.doctor;
         document.getElementById('categorySelect').value = v.metaCat;
         handleCategoryChange();
+        
+        // Re-populate Medications
+        const container = document.getElementById('medicationContainer');
+        container.innerHTML = "";
+        if(v.medDetails && v.medDetails.length > 0) {
+            v.medDetails.forEach(m => addMedicationRow(m));
+        } else {
+            addMedicationRow();
+        }
+
         setTimeout(() => {
             document.getElementById('illnessSelect').value = v.metaIll;
             handleIllnessChange();
             if(v.metaIll === "Other") document.getElementById('otherIllnessInput').value = v.illness;
-            document.getElementById('medicine').value = v.medicine;
             document.getElementById('notes').value = v.notes;
             document.getElementById('btnMain').innerText = "Update Record ✅";
             switchTab('visitTab');
@@ -449,7 +527,8 @@
         document.getElementById('drName').value = "";
         document.getElementById('categorySelect').value = "";
         document.getElementById('illnessSelect').innerHTML = "";
-        document.getElementById('medicine').value = "";
+        document.getElementById('medicationContainer').innerHTML = "";
+        addMedicationRow();
         document.getElementById('notes').value = "";
         document.getElementById('btnMain').innerText = "Save Record ✅";
     }
