@@ -398,7 +398,10 @@
         const insurance = document.getElementById('insuranceFile');
         const other = document.getElementById('otherReportsFile');
 
-        if (!blood.files[0] && !insurance.files[0] && !other.files[0]) return alert("Please select a file.");
+        // Check if at least one file is selected
+        if (!blood.files[0] && !insurance.files[0] && !other.files[0]) {
+            return alert("Please select at least one file to upload.");
+        }
 
         const processFile = (fileInput, type) => {
             return new Promise((resolve) => {
@@ -406,6 +409,7 @@
                     const file = fileInput.files[0];
                     const reader = new FileReader();
                     reader.onload = (e) => {
+                        // Crucial: Always get the LATEST state of localStorage before pushing
                         let reports = JSON.parse(localStorage.getItem('myDocs')) || [];
                         reports.push({ 
                             id: Date.now() + "_" + Math.random(),
@@ -415,7 +419,7 @@
                             data: e.target.result 
                         });
                         localStorage.setItem('myDocs', JSON.stringify(reports));
-                        fileInput.value = "";
+                        fileInput.value = ""; // Clear input after success
                         resolve();
                     };
                     reader.readAsDataURL(file);
@@ -425,16 +429,19 @@
             });
         };
 
+        // Process all uploads and then refresh the UI
         Promise.all([
             processFile(blood, "Blood Report"),
             processFile(insurance, "Insurance"),
             processFile(other, "Other Report")
         ]).then(() => {
-            alert("Documents saved permanently.");
-            renderReportList();
+            alert("Documents uploaded and saved to vault successfully!");
+            renderReportList(); // Refresh the visible list
+        }).catch(err => {
+            console.error("Upload Error:", err);
+            alert("An error occurred while saving documents.");
         });
     }
-
     function viewFile(dataUrl) {
         const win = window.open();
         win.document.write('<iframe src="' + dataUrl + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
@@ -540,6 +547,23 @@
             card.style.display = card.innerText.toLowerCase().includes(query) ? "block" : "none";
         });
     }
-</script>
+ // Revised Auto-hyphenation for dosage (e.g., 1-0-1) using Event Delegation
+document.addEventListener('input', function (e) {
+    // Check if the input being typed into is a frequency/dosage field
+    if (e.target && e.target.classList.contains('med-freq')) {
+        let value = e.target.value.replace(/[^0-9]/g, ''); // Remove non-numeric characters
+        if (value.length > 3) value = value.slice(0, 3); // Limit to 3 digits
+        
+        let formattedValue = "";
+        for (let i = 0; i < value.length; i++) {
+            formattedValue += value[i];
+            // Add a dash after the first and second digit, but not at the end
+            if ((i === 0 || i === 1) && i !== value.length - 1) {
+                formattedValue += "-";
+            }
+        }
+        e.target.value = formattedValue;
+    }
+});</script>
 </body>
 </html>
